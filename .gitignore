@@ -1,0 +1,6 @@
+# generated at runtime
+logs/
+backups/
+reports/
+*.log
+*.tar.gz
