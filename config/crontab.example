@@ -1,0 +1,3 @@
+# Run the health check every 5 minutes (quiet: output goes to logs/health.log)
+# Replace /path/to with the location of the toolkit.
+*/5 * * * * /path/to/linux-ops-toolkit/scripts/health_check.sh -q

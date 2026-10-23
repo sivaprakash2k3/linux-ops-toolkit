@@ -1,16 +1,36 @@
 #!/usr/bin/env bash
-# health_check.sh - basic server health report (v1)
+# health_check.sh - server health report with thresholds, logging and alerts (v2)
+#
+# Usage: health_check.sh [-q]
+#   -q  quiet: write only to the log file (use this from cron)
 
-set -U
+set -u
 
-CPU_WARN=80
-MEM_WARN=80
-DISK_WARN=80
-SERVICES=(ssh cron nginx)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/common.sh"
 
-problems=0
+CPU_WARN="${CPU_WARN:-80}"
+MEM_WARN="${MEM_WARN:-80}"
+DISK_WARN="${DISK_WARN:-80}"
+[ -z "${SERVICES+x}" ] && SERVICES=(ssh cron)
 
-timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+QUIET=0
+while getopts "q" opt; do
+    case $opt in
+        q) QUIET=1 ;;
+        *) echo "Usage: $0 [-q]" >&2; exit 2 ;;
+    esac
+done
+
+LOG_FILE="$LOG_DIR/health.log"
+problems=()
+
+# Print to the screen (unless quiet) and append to the log file
+emit() {
+    [ "$QUIET" -eq 1 ] || echo "$*"
+    echo "$(timestamp) $*" >> "$LOG_FILE"
+}
 
 # Average CPU busy percentage over one second, read from /proc/stat
 cpu_usage() {
@@ -33,34 +53,37 @@ mem_usage() { free | awk '/^Mem:/ {printf "%d", ($2-$7)*100/$2}'; }
 # Percentage of the root filesystem that is used
 disk_usage() { df -P / | awk 'NR==2 {gsub("%","",$5); print $5}'; }
 
-# report LABEL VALUE UNIT WARN_LEVEL
-report() {
-    local label=$1 value=$2 unit=$3 warn=$4 state=OK
+# check_threshold KEY LABEL VALUE UNIT WARN_LEVEL
+check_threshold() {
+    local key=$1 label=$2 value=$3 unit=$4 warn=$5 state=OK
     if [ "$value" -ge "$warn" ]; then
         state=WARN
-        problems=$((problems + 1))
+        problems+=("$key|$label at ${value}${unit} (threshold ${warn}${unit})")
     fi
-    printf '%-12s %5s%s  [%s]\n' "$label" "$value" "$unit" "$state"
+    emit "$(printf '%-12s %5s%s  [%s]' "$label" "$value" "$unit" "$state")"
 }
 
-echo "=== Health check: $(hostname) at $(timestamp) ==="
-report "CPU"    "$(cpu_usage)"  "%" "$CPU_WARN"
-report "Memory" "$(mem_usage)"  "%" "$MEM_WARN"
-report "Disk /" "$(disk_usage)" "%" "$DISK_WARN"
-echo "Load average: $(cut -d' ' -f1-3 /proc/loadavg) (cores: $(nproc))"
+emit "=== Health check on $(hostname) at $(timestamp) ==="
+check_threshold cpu  "CPU"    "$(cpu_usage)"  "%" "$CPU_WARN"
+check_threshold mem  "Memory" "$(mem_usage)"  "%" "$MEM_WARN"
+check_threshold disk "Disk /" "$(disk_usage)" "%" "$DISK_WARN"
+emit "Load average: $(cut -d' ' -f1-3 /proc/loadavg) (cores: $(nproc))"
 
-echo "--- Services ---"
+emit "--- Services ---"
 for svc in "${SERVICES[@]}"; do
     if systemctl is-active --quiet "$svc"; then
-        printf '%-12s [OK]\n' "$svc"
+        emit "$(printf '%-12s [OK]' "$svc")"
     else
-        printf '%-12s [DOWN]\n' "$svc"
-        problems=$((problems + 1))
+        emit "$(printf '%-12s [DOWN]' "$svc")"
+        problems+=("service-$svc|Service $svc is not running")
     fi
 done
 
-if [ "$problems" -gt 0 ]; then
-    echo "Result: $problems problem(s) found"
+if [ "${#problems[@]}" -gt 0 ]; then
+    emit "Result: ${#problems[@]} problem(s) found"
+    for entry in "${problems[@]}"; do
+        "$SCRIPT_DIR/alert.sh" "${entry%%|*}" "${entry#*|}"
+    done
     exit 1
 fi
-echo "Result: all checks passed"
+emit "Result: all checks passed"
