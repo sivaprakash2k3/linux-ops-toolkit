@@ -4,3 +4,4 @@ backups/
 reports/
 *.log
 *.tar.gz
+config/*.local.conf
