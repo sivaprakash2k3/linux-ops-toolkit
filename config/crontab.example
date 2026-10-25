@@ -1,3 +1,6 @@
 # Run the health check every 5 minutes (quiet: output goes to logs/health.log)
 # Replace /path/to with the location of the toolkit.
 */5 * * * * /path/to/linux-ops-toolkit/scripts/health_check.sh -q
+
+# Back up every night at 08:00 pm
+0 20 * * * /path/to/linux-ops-toolkit/scripts/backup.sh run
