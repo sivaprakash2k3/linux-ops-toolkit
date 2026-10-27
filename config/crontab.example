@@ -4,3 +4,6 @@
 
 # Back up every night at 08:00 pm
 0 20 * * * /path/to/linux-ops-toolkit/scripts/backup.sh run
+
+# Generate the log report every evening at 20:30
+30 20 * * * /path/to/linux-ops-toolkit/scripts/log_report.sh -q
