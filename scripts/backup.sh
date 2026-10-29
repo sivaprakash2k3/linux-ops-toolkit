@@ -87,7 +87,7 @@ do_list() {
 do_verify() {
     local archive=${1:-}
     [ -n "$archive" ] || archive=$(latest_backup)
-    [ -n "$archive" ] && [ -f "$archive" ] || fail "no backup file to verify"
+    if [ -z "$archive" ] || [ ! -f "$archive" ]; then fail "no backup file to verify"; fi
 
     local dir base
     dir=$(dirname "$archive")
@@ -105,7 +105,7 @@ do_verify() {
 do_restore_test() {
     local archive=${1:-}
     [ -n "$archive" ] || archive=$(latest_backup)
-    [ -n "$archive" ] && [ -f "$archive" ] || fail "no backup file to test"
+    if [ -z "$archive" ] || [ ! -f "$archive" ]; then fail "no backup file to test"; fi
 
     local tmp
     tmp=$(mktemp -d)
