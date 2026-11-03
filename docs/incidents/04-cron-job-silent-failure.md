@@ -2,47 +2,58 @@
 
 | | |
 |---|---|
-| Date | TODO: YYYY-MM-DD |
+| Date | 2026-11-03 |
 | Severity | Medium |
 | Detected by | Noticing the log file had stopped updating |
-| Time to resolve | TODO minutes |
+| Time to resolve | About 5 minutes (detected 07:42:11, fixed by 07:47:16) |
 
 ## Symptom
-A job that wrote one line to a log file every minute stopped producing output. Nothing
-reported an error anywhere, so the failure was only visible because the newest log line
-was older than the current time (last entry TODO, current time TODO).
+A test job that wrote one line to `~/lab-heartbeat.log` every minute stopped producing output.
+Nothing reported an error: the failure was only visible because the newest log line was
+07:38:01 while the clock read 07:41:24.
 
 ## Timeline
-- TODO hh:mm A test cron job was working (one heartbeat line per minute)
-- TODO hh:mm The script's execute permission was removed with `chmod -x`
-- TODO hh:mm The log stopped growing
-- TODO hh:mm Investigation showed cron was still starting the command
-- TODO hh:mm Permission restored and the job resumed
+- 07:33:48 Created the test cron job; heartbeat lines appeared every minute (07:36:02, 07:37:01, 07:38:01)
+- 07:38:29 Removed the script's execute permission with `chmod -x`
+- 07:38-07:41 No new log lines, while the cron journal still showed the job starting every minute
+- 07:41:24 Checked: the last log entry was still 07:38:01
+- 07:42:11 Investigation: running the script by hand gave `Permission denied`
+- by 07:46 Execute permission restored; the log resumed (entries at 07:46:01 and 07:47:02)
+- 07:47:16 Fix recorded and the test job removed
 
 ## Investigation
 ```bash
+date
+tail -2 ~/lab-heartbeat.log
 journalctl -u cron --since "10 minutes ago" --no-pager | tail
 ~/lab-heartbeat.sh
 ls -l ~/lab-heartbeat.sh
 ```
-- The cron journal showed `CMD (...)` each minute, so cron was starting the job.
-- Running the script by hand printed `Permission denied`.
-- `ls -l` showed `TODO paste the permissions, for example -rw-rw-r--` with no `x` bit.
+- `date` showed 07:41:24, but the newest heartbeat was 07:38:01.
+- The cron journal showed cron **starting** the command every minute, for example
+  `(sivaprakash) CMD (/home/sivaprakash/lab-heartbeat.sh)` at 07:40:01 and 07:41:01, followed by
+  `(CRON) info (No MTA installed, discarding output)`.
+- Running the script by hand printed `-bash: /home/sivaprakash/lab-heartbeat.sh: Permission denied`.
+- `ls -l` showed `-rw-rw-r-- 1 sivaprakash sivaprakash 76 Nov 3 07:35`: no `x` bit anywhere.
 
 ## Root cause
-The script lost its execute permission, so every run failed. Cron discards the error
-output when no mail system is configured, so nobody saw the failure.
+The script lost its execute permission, so every run failed. Cron discards a job's output
+when no mail system is installed, so the error message was thrown away and nobody saw it.
 
 ## Fix
-`chmod +x` on the script. The log resumed within a minute.
+`chmod +x ~/lab-heartbeat.sh`. The log resumed within a minute (`07:46:01 heartbeat ok`,
+`07:47:02 heartbeat ok`). The test job and its files were then removed, leaving only the
+toolkit's three jobs in the crontab.
 
 ## Prevention
-- Redirect output in every cron line: `>> logs/cron.log 2>&1`. I tested this: with the
-  redirect, the `Permission denied` message appeared in the log file.
+- Redirect output in every cron line (`>> file 2>&1`) so errors land in a file. All three
+  toolkit jobs now do this, for example:
+  `*/5 * * * * /home/sivaprakash/linux-ops-toolkit/scripts/health_check.sh -q >> /home/sivaprakash/linux-ops-toolkit/logs/cron.log 2>&1`
+  (`install.sh` writes these lines).
 - Raise an alert if an expected log line has not appeared recently.
-- Check job health by looking at results (fresh files, recent timestamps), not only at
-  whether the schedule exists.
+- Check results (fresh files, recent timestamps), not only whether the schedule exists.
 
 ## What I learned
-A scheduled job can fail without any visible sign. Cron starting a command does not mean
-the command worked, so capture its output and check that results keep arriving.
+Cron starting a command does not mean the command worked. The journal showed the job being
+launched every minute even though it failed every time, and the real error was discarded
+because there was no mail system, so output has to be captured on purpose.
